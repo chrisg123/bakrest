@@ -21,9 +21,9 @@ def parse_args(argv):
         help="Base URL of the server (e.g., http://127.0.0.1:5000)")
     parser.add_argument("file_path", help="Path to the file to be uploaded")
     parser.add_argument("sql_server_name",
-                        help="Path to the file to be uploaded")
+                        help="Hostname of the remote SQL server")
     parser.add_argument("database_name",
-                        help="Path to the file to be uploaded")
+                        help="Database name to restore to")
     parser.add_argument(
         "--password",
         help="SQL Server SA password (can also use SA_PASSWORD env variable)")
