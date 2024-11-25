@@ -12,7 +12,7 @@ def sigint(
     sys.stdout.write("\nexit\n")
     sys.exit(0)
 
-def parse_args(argv):
+def parse_args():
     parser = argparse.ArgumentParser(
         description="Upload and restore a SQL Server .bak to a remote server")
 
@@ -28,11 +28,11 @@ def parse_args(argv):
         "--password",
         help="SQL Server SA password (can also use SA_PASSWORD env variable)")
 
-    return parser.parse_args(argv)
+    return parser.parse_args()
 
-def main(argv):
+def main():
     signal(SIGINT, sigint)
-    args = parse_args(argv[1:])
+    args = parse_args()
     password = args.password or os.environ.get("SA_PASSWORD")
 
     if not password:
