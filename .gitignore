@@ -1,3 +1,5 @@
 /__pycache__/
 /bakrest/__pycache__/
 /venv/
+/bakrest.egg-info/
+/dist/
