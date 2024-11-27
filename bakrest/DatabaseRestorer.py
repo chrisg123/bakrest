@@ -117,7 +117,7 @@ class DatabaseRestorer:
             self, db_name: str, restore_dir: str,
             logical_files: List[Dict[str, str]]) -> List[str]:
         type_counts = {"data": 0, "log": 0}
-        type_counters = {"data": 2, "log": 2}
+        type_counters = {"data": 0, "log": 0}
         moves = []
 
         for file in logical_files:
@@ -128,6 +128,7 @@ class DatabaseRestorer:
         for file in logical_files:
             lname = file.get("logical_name")
             ltype = file.get("type")
+            type_counters[ltype] += 1
 
             if not lname or not ltype:
                 print(f"Warning: Missing keys in logical file: {file}")
@@ -138,12 +139,11 @@ class DatabaseRestorer:
                 print(f"Warning: Unknown file type '{ltype}' for {lname}")
                 continue
 
-            if type_counts[ltype] == 1:
+            if type_counters[ltype] == 1:
                 new_name = os.path.join(restore_dir, f"{db_name}{ext}")
             else:
                 new_name = os.path.join(
                     restore_dir, f"{db_name}_{type_counters[ltype]}{ext}")
-                type_counters[ltype] += 1
 
             moves.append(f"MOVE '{lname}' TO '{new_name}'")
         return moves
