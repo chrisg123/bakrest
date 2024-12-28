@@ -1,3 +1,4 @@
+import os
 import time
 import threading
 import queue
@@ -31,63 +32,110 @@ class FileUploader:
             raise ValueError("Failed to retrieve upload ID")
         return upload_id
 
-    def upload_file(self, upload_id, file_path) -> Dict:
-        """Upload the file to the server."""
-        upload_url = f"{self.base_url}/upload/{upload_id}"
-        print(f"Uploading file to {upload_url}")
-        with open(file_path, "rb") as f:
-            response = requests.post(upload_url, files={"file": f}, timeout=30)
-            response.raise_for_status()
+    def upload_file(self, upload_id, file_path):
+        file_size = os.path.getsize(file_path)
+        uploaded_size = 0
+        last_print_time = time.time()
 
+        def data_generator():
+            nonlocal uploaded_size
+            nonlocal last_print_time
+
+            for chunk in self.chunk_reader(file_path):
+                uploaded_size += len(chunk)
+                now = time.time()
+                if now - last_print_time >= 1:
+                    percent = (uploaded_size / file_size) * 100
+                    print(f"Upload progress: {percent:.1f}%")
+                    last_print_time = now
+                yield chunk
+
+        upload_url = f"{self.base_url}/upload/{upload_id}"
+        response = requests.post(
+            upload_url,
+            data=data_generator(),
+            headers={'X-Filename': os.path.basename(file_path)},
+            stream=True,
+            timeout=30
+        )
+        response.raise_for_status()
         return response.json()
 
-    def poll_progress(self, upload_id):
-        """Poll the server for upload progress."""
+    def upload_and_track(self, file_path: str) -> Dict:
+        upload_id = self.request_upload_id()
+        print(f"Obtained upload ID: {upload_id}")
+        result_queue = queue.Queue()
+
+        def upload_worker():
+            try:
+                result = self.upload_file(upload_id, file_path)
+                result_queue.put({"upload_result": result})
+            except Exception as e:
+                msg = f"Upload Error: {str(e)}"
+                print(msg)
+                result_queue.put({"error": msg})
+
+        upload_thread = threading.Thread(target=upload_worker)
+        upload_thread.start()
+
         progress_url = f"{self.base_url}/progress/{upload_id}"
-        while True:
-            response = requests.get(progress_url, timeout=30)
-            response.raise_for_status()
-            progress_data = response.json()
+        polling_complete = False
 
-            if "progress" not in progress_data:
-                print("Unexpected progress data:", progress_data)
-                break
+        while upload_thread.is_alive() and not polling_complete:
 
-            progress = progress_data["progress"]
-            print(f"Progress: {progress}")
+            try:
+                response = requests.get(progress_url, timeout=30)
+                response.raise_for_status()
+                progress_data = response.json()
 
-            if progress == "100%":
-                print("Upload complete!")
+                if "progress" not in progress_data:
+                    print("Unexpected progress data:", progress_data)
+                    result_queue.put({"error": "Unexpected progress data"})
+                    polling_complete = True
+                    break
+
+                progress = progress_data["progress"]
+
+                if int(progress.rstrip('%')) > 0:
+                    print(f"Server Progress: {progress}")
+
+                if progress == "100%":
+                    print("Upload complete!")
+                    polling_complete = True
+
+            except Exception as e:
+                print(f"Polling error: {e}")
+                result_queue.put({"error": f"Polling Error: {str(e)}"})
+                polling_complete = True
                 break
 
             time.sleep(1)
 
-    def upload_and_track(self, file_path: str) -> Dict:
-        try:
-            upload_id = self.request_upload_id()
-            print(f"Obtained upload ID: {upload_id}")
+        upload_thread.join()
 
-            result_queue = queue.Queue()
+        upload_result = None
+        errors = []
 
-            def upload_worker():
-                try:
-                    result = self.upload_file(upload_id, file_path)
-                    result_queue.put(result)
-                except Exception as e:
-                    result_queue.put({"error": str(e)})
+        while not result_queue.empty():
+            result = result_queue.get()
+            if "upload_result" in result:
+                upload_result = result["upload_result"]
+            elif "error" in result:
+                errors.append(result["error"])
 
-            poll_thread = threading.Thread(
-                target=self.poll_progress, args=(upload_id,)
-            )
+        if upload_result:
+            if errors:
+                upload_result["warnings"] = " | ".join(errors)
+            return upload_result
+        elif errors:
+            return {"error": " | ".join(errors)}
 
-            upload_thread = threading.Thread(target=upload_worker)
-            upload_thread.start()
-            poll_thread.start()
+        return {"error": "No upload result."}
 
-            upload_thread.join()
-            poll_thread.join()
+    def chunk_reader(self, file_path, chunk_size=4096):
+        with open(file_path, 'rb') as f:
+            while True:
+                data = f.read(chunk_size)
+                if not data: break
+                yield data
 
-            return result_queue.get()
-
-        except Exception as e:
-            return {"error": f"{type(e).__name__}: {e}"}
