@@ -56,7 +56,7 @@ class FileUploader:
             data=data_generator(),
             headers={'X-Filename': os.path.basename(file_path)},
             stream=True,
-            timeout=30
+            timeout=120
         )
         response.raise_for_status()
         return response.json()
